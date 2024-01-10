@@ -9,6 +9,7 @@ import app.img.DownloadImg;
 import app.img.IAmToken;
 import app.model.*;
 import app.service.*;
+import app.util.CheckUrl;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -89,6 +90,8 @@ public class Chat extends TelegramLongPollingBot {
     private volatile Integer lengthCaption = null;
     private volatile Integer count = null;
     private final HashSet<String> groupsBlackList = new HashSet<>();
+    private final HashSet<Long> enterNewLength = new HashSet<>();
+
 
     @Scheduled(fixedRate = 10800000)
     public void getIamToken() {
@@ -207,6 +210,9 @@ public class Chat extends TelegramLongPollingBot {
     }
 
     public void controlPartner(Message message, String userName, boolean isMediaGroup) {
+        if (!CheckUrl.textContainsUrl(message)) return;
+        if ((message.hasPhoto() || message.hasDocument()) && message.getCaption() == null) return;
+
         String chatUserName = "@" + message.getChat().getUserName();
         AtomicBoolean moreThanZero = new AtomicBoolean(false);
 
@@ -230,19 +236,23 @@ public class Chat extends TelegramLongPollingBot {
                         return;
                     }
 
-                    if (messageIsNotGroupMediaMessage(message, userName)) {
+                    if (messageIsNotGroup(message, userName)) {
                         int postCount = user.getPostCount() - 1;
                         user.setPostCount(postCount);
                         advertisersService.deleteByUserId(user.getId());
                         user.setId(null);
                         advertisersService.save(user);
                         executeWithoutDelete(message.getFrom().getId(), partnersMsg.postCounterMsgToUser(user, postCount));
+
+                        if (postCount == 0) {
+                            executeWithoutDelete(user.getAdminChatIdOwner(), partnersMsg.postCountEndMsgToAdmin(user));
+                        }
                         return;
                     }
                     stopSpam(message, isMediaGroup);
                 });
 
-        if (messageIsNotGroupMediaMessage(message, userName) && !moreThanZero.get()) {
+        if (messageIsNotGroup(message, userName) && !moreThanZero.get()) {
 
             advertisersService.getAllUsersByUserName(userName).stream()
                     .filter(user -> user.getPermissionToGroup().equals(chatUserName)
@@ -256,8 +266,7 @@ public class Chat extends TelegramLongPollingBot {
         }
     }
 
-
-    private boolean messageIsNotGroupMediaMessage(Message message, String userName) {
+    private boolean messageIsNotGroup(Message message, String userName) {
         if (message.getMediaGroupId() != null && !groupMediaData.containsKey(message.getMediaGroupId())
                 || message.getMediaGroupId() == null) {
 
@@ -310,7 +319,8 @@ public class Chat extends TelegramLongPollingBot {
     }
 
     private void deleteMessageIfThePhotoIsBad(Message message, boolean isMediaGroup) throws Exception {
-        if (!checkPhoto || (message.getCaption() != null && message.getCaption().length() > lengthCaption) || isMediaGroup) {
+        if (!checkPhoto || (message.getCaption() != null && message.getCaption().length() > lengthCaption)
+                || isMediaGroup) {
             return;
         }
 
@@ -434,8 +444,6 @@ public class Chat extends TelegramLongPollingBot {
         vipUsersHandler(chatId, data);
     }
 
-    private final HashSet<Long> enterNewLength = new HashSet<>();
-
     private void mainMenuHandler(Update update, Long chatId, String data) {
         try {
             int i = Integer.parseInt(data);
@@ -458,10 +466,12 @@ public class Chat extends TelegramLongPollingBot {
 
             if (i == 33) {
                 if (checkPhoto) {
+
                     checkPhoto = false;
                 } else {
                     checkPhoto = true;
                 }
+
                 saveTheSetting();
                 executeMsg(adminMessage.getSettingsMsg(chatId, count, lengthCaption, checkPhoto));
             }

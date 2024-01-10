@@ -15,6 +15,7 @@ public class AdvertisersService {
 
     public boolean save(AdvertisersUser user) {
         try {
+            deleteByUserNameForThisAdmin(user);
             repository.save(user);
             return true;
         } catch (Exception e) {
@@ -39,6 +40,16 @@ public class AdvertisersService {
             return false;
         }
     }
+
+    private void deleteByUserNameForThisAdmin(AdvertisersUser newUser) {
+        repository.findAllByUserName(newUser.getUserName())
+                .stream()
+                .filter(existingUser ->
+                        newUser.getAdminChatIdOwner().equals(existingUser.getAdminChatIdOwner())
+                                && existingUser.getPermissionToGroup().equals(newUser.getPermissionToGroup()))
+                .forEach(existingUser -> deleteByUserId(existingUser.getId()));
+    }
+
 
     public AdvertisersUser getUserById(Integer id) {
         return repository.findById(id).get();
